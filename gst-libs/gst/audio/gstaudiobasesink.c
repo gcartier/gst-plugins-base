@@ -1122,6 +1122,32 @@ gst_audio_base_sink_wait_event (GstBaseSink * bsink, GstEvent * event)
       /* Make sure the ringbuffer will start again if interrupted during event_wait() */
       g_atomic_int_set (&sink->eos_rendering, 1);
       clear_force_start_flag = TRUE;
+
+      // proof of concept
+      GstClockTime timestamp, duration, start, stop, time;
+
+      gst_event_parse_gap (event, &timestamp, &duration);
+
+      start = timestamp;
+      stop = start + duration;
+
+      // time = start + gst_base_sink_get_latency (bsink);
+      time = start + 230000000;
+
+      GstAudioRingBuffer *buf = sink->ringbuffer;
+      GstClock *clock = GST_ELEMENT_CLOCK (sink);
+      while (gst_clock_get_time (clock) < time) {
+        GST_OBJECT_LOCK (buf);
+        if (g_atomic_int_compare_and_exchange (&buf->waiting, 0, 1)) {
+          GST_AUDIO_RING_BUFFER_WAIT (buf);
+        }
+        GST_OBJECT_UNLOCK (buf);
+      }
+
+      // gst_base_sink_wait_clock (bsink, time, NULL);
+
+      goto done;
+
       break;
     default:
       break;
