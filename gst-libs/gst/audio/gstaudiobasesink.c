@@ -1144,8 +1144,6 @@ gst_audio_base_sink_wait_event (GstBaseSink * bsink, GstEvent * event)
         GST_OBJECT_UNLOCK (buf);
       }
 
-      // gst_base_sink_wait_clock (bsink, time, NULL);
-
       goto done;
 
       break;
