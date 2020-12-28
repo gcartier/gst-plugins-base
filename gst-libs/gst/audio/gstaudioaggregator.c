@@ -1781,6 +1781,7 @@ done:
 
 /* Called with pad object lock held */
 
+static guint64 yo = 0;
 static gboolean
 gst_audio_aggregator_mix_buffer (GstAudioAggregator * aagg,
     GstAudioAggregatorPad * pad, GstBuffer * inbuf, GstBuffer * outbuf,
@@ -1835,6 +1836,7 @@ gst_audio_aggregator_mix_buffer (GstAudioAggregator * aagg,
 
   pad->priv->position += overlap;
   pad->priv->output_offset += overlap;
+  yo = pad->priv->output_offset - aagg->priv->offset;
 
   if (pad->priv->position == pad->priv->size) {
     /* Buffer done, drop it */
@@ -2052,6 +2054,9 @@ gst_audio_aggregator_aggregate (GstAggregator * agg, gboolean timeout)
     aagg->priv->accumulated_error =
         (aagg->priv->accumulated_error +
         aagg->priv->error_per_buffer) % aagg->priv->output_buffer_duration_d;
+
+    if (yo != 480)
+      g_print ("GRITCH %llu\n", yo);
 
     GST_OBJECT_UNLOCK (agg);
     aagg->priv->current_buffer =
