@@ -44,6 +44,8 @@ GST_DEBUG_CATEGORY_STATIC (gst_audio_clock_debug);
 static void gst_audio_clock_dispose (GObject * object);
 
 static GstClockTime gst_audio_clock_get_internal_time (GstClock * clock);
+static GstClockReturn gst_audio_clock_id_wait_jitter (GstClock * clock,
+    GstClockEntry * entry, GstClockTimeDiff * jitter);
 
 #define parent_class gst_audio_clock_parent_class
 G_DEFINE_TYPE (GstAudioClock, gst_audio_clock, GST_TYPE_SYSTEM_CLOCK);
@@ -59,6 +61,7 @@ gst_audio_clock_class_init (GstAudioClockClass * klass)
 
   gobject_class->dispose = gst_audio_clock_dispose;
   gstclock_class->get_internal_time = gst_audio_clock_get_internal_time;
+  gstclock_class->wait = gst_audio_clock_id_wait_jitter;
 
   GST_DEBUG_CATEGORY_INIT (gst_audio_clock_debug, "audioclock", 0,
       "audioclock");
@@ -100,7 +103,8 @@ gst_audio_clock_dispose (GObject * object)
  * Returns: (transfer full): a new #GstAudioClock casted to a #GstClock.
  */
 GstClock *
-gst_audio_clock_new (const gchar * name, GstAudioClockGetTimeFunc func,
+gst_audio_clock_new (const gchar * name,
+    GstAudioClockGetTimeFunc func, GstAudioClockWaitFunc wait_func,
     gpointer user_data, GDestroyNotify destroy_notify)
 {
   GstAudioClock *aclock =
@@ -108,6 +112,7 @@ gst_audio_clock_new (const gchar * name, GstAudioClockGetTimeFunc func,
           "clock-type", GST_CLOCK_TYPE_OTHER, NULL));
 
   aclock->func = func;
+  aclock->wait_func = wait_func;
   aclock->user_data = user_data;
   aclock->destroy_notify = destroy_notify;
 
@@ -175,6 +180,20 @@ gst_audio_clock_get_internal_time (GstClock * clock)
       GST_TIME_ARGS (result), GST_TIME_ARGS (aclock->last_time));
 
   return result;
+}
+
+static GstClockReturn
+gst_audio_clock_id_wait_jitter (GstClock * clock,
+    GstClockEntry * entry, GstClockTimeDiff * jitter)
+{
+  GstAudioClock *aclock;
+
+  aclock = GST_AUDIO_CLOCK_CAST (clock);
+
+  if (aclock->wait_func)
+    return aclock->wait_func (clock, entry, jitter);
+  else
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
 }
 
 /**

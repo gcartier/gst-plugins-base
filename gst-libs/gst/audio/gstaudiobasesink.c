@@ -145,6 +145,8 @@ static GstClock *gst_audio_base_sink_provide_clock (GstElement * elem);
 static inline void gst_audio_base_sink_reset_sync (GstAudioBaseSink * sink);
 static GstClockTime gst_audio_base_sink_get_time (GstClock * clock,
     GstAudioBaseSink * sink);
+static GstClockReturn gst_audio_base_sink_id_wait_jitter (GstClock * clock,
+    GstClockEntry * entry, GstClockTimeDiff * jitter);
 static void gst_audio_base_sink_callback (GstAudioRingBuffer * rbuf,
     guint8 * data, guint len, gpointer user_data);
 
@@ -292,8 +294,9 @@ gst_audio_base_sink_init (GstAudioBaseSink * audiobasesink)
   audiobasesink->priv->custom_slaving_cb_notify = NULL;
 
   audiobasesink->provided_clock = gst_audio_clock_new ("GstAudioSinkClock",
-      (GstAudioClockGetTimeFunc) gst_audio_base_sink_get_time, audiobasesink,
-      NULL);
+      (GstAudioClockGetTimeFunc) gst_audio_base_sink_get_time,
+      (GstAudioClockWaitFunc) gst_audio_base_sink_id_wait_jitter,
+      audiobasesink, NULL);
 
   basesink->can_activate_push = TRUE;
   basesink->can_activate_pull = DEFAULT_CAN_ACTIVATE_PULL;
@@ -544,6 +547,91 @@ gst_audio_base_sink_get_time (GstClock * clock, GstAudioBaseSink * sink)
 
   return result;
 }
+
+static int ccc = 0;
+static GstClockReturn
+gst_audio_base_sink_id_wait_jitter (GstClock * clock, GstClockEntry * entry,
+    GstClockTimeDiff * jitter)
+{
+  ccc++;
+
+  GstAudioBaseSink *sink;
+  GstClockTime time, now;
+
+  sink = GST_AUDIO_BASE_SINK (clock);
+
+  now = gst_clock_get_time (clock);
+  time = GST_CLOCK_ENTRY_TIME (entry);
+
+  GstAudioRingBuffer *ringbuffer = sink->ringbuffer;
+
+  g_print
+      ("*** CLOCK WAIT thread %p clock %p sink %p ringbuffer %p now %llu time %llu\n",
+      g_thread_self (), clock, sink, ringbuffer, now, time);
+
+  if (ccc < 10) {
+    g_print ("************* CCC %d\n", ccc);
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+  }
+
+  if (now == 0 && time == 0) {
+    g_print ("TIME 0000000\n");
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+  }
+
+  if (ringbuffer == NULL) {
+    g_print ("NO RINGBUFFER\n");
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+  }
+/*
+  if (ringbuffer->spec.info.rate == 0) {
+    g_print ("NO RATE\n");
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+  }
+*/
+//  g_print ("RATE %d\n", ringbuffer->spec.info.rate);
+/*
+  g_print ("acquired\n");
+  if (!gst_audio_ring_buffer_is_acquired (ringbuffer)) {
+    g_print ("NOT ACQUIRED\n");
+    return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+  }
+*/
+/*
+  g_print ("111\n");
+  GST_OBJECT_LOCK (ringbuffer);
+  g_print("222\n");
+  GST_OBJECT_UNLOCK (ringbuffer);
+  g_print ("333\n");
+*/
+  g_print ("111 thread %p now %llu\n", g_thread_self (), now);
+  while (gst_clock_get_time (clock) == now)
+    gst_audio_ring_buffer_listeners_wait (ringbuffer);
+  g_print ("222 thread %p time %llu\n", g_thread_self (),
+      gst_clock_get_time (clock));
+
+  return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+
+  g_print ("111 %p\n", g_thread_self ());
+  while (gst_clock_get_time (clock) < time) {
+    g_print ("222 %llu\n", gst_clock_get_time (clock));
+    GST_OBJECT_LOCK (ringbuffer);
+    g_print ("333\n");
+    // if (g_atomic_int_compare_and_exchange (&ringbuffer->waiting, 0, 1)) {
+    GST_AUDIO_RING_BUFFER_WAIT (ringbuffer);
+    // }
+    g_print ("444\n");
+    GST_OBJECT_UNLOCK (ringbuffer);
+    g_print ("555\n");
+  }
+
+  g_print ("************** 999\n");
+
+  return GST_CLOCK_OK;
+
+  // return gst_system_clock_id_wait_jitter (clock, entry, jitter);
+}
+
 
 /**
  * gst_audio_base_sink_set_provide_clock:
@@ -1124,12 +1212,11 @@ gst_audio_base_sink_wait_event (GstBaseSink * bsink, GstEvent * event)
       clear_force_start_flag = TRUE;
 
       // proof of concept
-      GstClockTime timestamp, duration, start, stop, time;
+      GstClockTime timestamp, duration, start, time;
 
       gst_event_parse_gap (event, &timestamp, &duration);
 
       start = timestamp;
-      stop = start + duration;
 
       // time = start + gst_base_sink_get_latency (bsink);
       time = start + 230000000;

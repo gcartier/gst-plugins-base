@@ -62,6 +62,9 @@ typedef struct _GstAudioClockClass GstAudioClockClass;
  */
 typedef GstClockTime (*GstAudioClockGetTimeFunc) (GstClock *clock, gpointer user_data);
 
+typedef GstClockReturn (*GstAudioClockWaitFunc) (GstClock * clock, GstClockEntry * entry,
+    GstClockTimeDiff * jitter);
+
 /**
  * GstAudioClock:
  *
@@ -72,6 +75,7 @@ struct _GstAudioClock {
 
   /*< protected >*/
   GstAudioClockGetTimeFunc func;
+  GstAudioClockWaitFunc    wait_func;
   gpointer                 user_data;
   GDestroyNotify           destroy_notify;
 
@@ -93,7 +97,8 @@ GST_AUDIO_API
 GType           gst_audio_clock_get_type        (void);
 
 GST_AUDIO_API
-GstClock*       gst_audio_clock_new             (const gchar *name, GstAudioClockGetTimeFunc func,
+GstClock*       gst_audio_clock_new             (const gchar *name,
+                                                 GstAudioClockGetTimeFunc func, GstAudioClockWaitFunc wait_func,
                                                  gpointer user_data, GDestroyNotify destroy_notify);
 
 GST_AUDIO_API

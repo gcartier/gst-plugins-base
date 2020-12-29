@@ -407,6 +407,9 @@ void            gst_audio_ring_buffer_advance         (GstAudioRingBuffer *buf, 
 GST_AUDIO_API
 void            gst_audio_ring_buffer_may_start       (GstAudioRingBuffer *buf, gboolean allowed);
 
+GST_AUDIO_API
+void            gst_audio_ring_buffer_listeners_wait  (GstAudioRingBuffer *buf);
+
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GstAudioRingBuffer, gst_object_unref)
 
 G_END_DECLS

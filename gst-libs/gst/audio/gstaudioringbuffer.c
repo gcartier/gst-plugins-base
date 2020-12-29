@@ -57,6 +57,66 @@ static guint default_commit (GstAudioRingBuffer * buf, guint64 * sample,
 G_DEFINE_ABSTRACT_TYPE (GstAudioRingBuffer, gst_audio_ring_buffer,
     GST_TYPE_OBJECT);
 
+static GCond listeners_cond;
+static GMutex listeners_mutex;
+
+static gint listeners_inited = FALSE;
+static gint listeners_waiting = FALSE;
+
+static void
+gst_audio_ring_buffer_listeners_init ()
+{
+  g_atomic_int_set (&listeners_inited, TRUE);
+  g_cond_init (&listeners_cond);
+  g_mutex_init (&listeners_mutex);
+}
+
+// thread 1:
+//     pthread_mutex_lock(&mutex);
+//     while (!condition)
+//         pthread_cond_wait(&cond, &mutex);
+//     /* do something that requires holding the mutex and condition is true */
+//     pthread_mutex_unlock(&mutex);
+// 
+// thread2:
+//     pthread_mutex_lock(&mutex);
+//     /* do something that might make condition true */
+//     pthread_cond_signal(&cond);
+//     pthread_mutex_unlock(&mutex);
+
+void
+gst_audio_ring_buffer_listeners_wait (GstAudioRingBuffer * buf)
+{
+  if (!g_atomic_int_get (&listeners_inited))
+    gst_audio_ring_buffer_listeners_init ();
+
+  // gint segdone;
+
+  g_mutex_lock (&listeners_mutex);
+  if (g_atomic_int_compare_and_exchange (&listeners_waiting, 0, 1)) {
+    // segdone = g_atomic_int_get (&buf->segdone);
+    // while (g_atomic_int_get (&buf->segdone) == segdone) {
+    g_print ("LISTENERS WAIT %p\n", g_thread_self ());
+    g_cond_wait (&listeners_cond, &listeners_mutex);
+    // }
+  }
+  g_mutex_unlock (&listeners_mutex);
+}
+
+static void
+gst_audio_ring_buffer_listeners_signal ()
+{
+  if (!listeners_inited)
+    gst_audio_ring_buffer_listeners_init ();
+
+  if (g_atomic_int_compare_and_exchange (&listeners_waiting, 1, 0)) {
+    g_print ("LISTENERS SIGNAL %p\n", g_thread_self ());
+    g_mutex_lock (&listeners_mutex);
+    g_cond_signal (&listeners_cond);
+    g_mutex_unlock (&listeners_mutex);
+  }
+}
+
 static void
 gst_audio_ring_buffer_class_init (GstAudioRingBufferClass * klass)
 {
@@ -1368,6 +1428,7 @@ wait_segment (GstAudioRingBuffer * buf)
     goto not_started;
 
   if (G_LIKELY (wait)) {
+    g_print ("RINGBUFFER WAIT %p\n", g_thread_self ());
     if (g_atomic_int_compare_and_exchange (&buf->waiting, 0, 1)) {
       GST_DEBUG_OBJECT (buf, "waiting..");
       GST_AUDIO_RING_BUFFER_WAIT (buf);
@@ -1936,6 +1997,7 @@ gst_audio_ring_buffer_advance (GstAudioRingBuffer * buf, guint advance)
   /* update counter */
   g_atomic_int_add (&buf->segdone, advance);
 
+  g_print ("RINGBUFFER SIGNAL %p\n", g_thread_self ());
   /* the lock is already taken when the waiting flag is set,
    * we grab the lock as well to make sure the waiter is actually
    * waiting for the signal */
@@ -1943,6 +2005,7 @@ gst_audio_ring_buffer_advance (GstAudioRingBuffer * buf, guint advance)
     GST_OBJECT_LOCK (buf);
     GST_DEBUG_OBJECT (buf, "signal waiter");
     GST_AUDIO_RING_BUFFER_SIGNAL (buf);
+    gst_audio_ring_buffer_listeners_signal ();
     GST_OBJECT_UNLOCK (buf);
   }
 }
